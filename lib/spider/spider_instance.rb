@@ -57,6 +57,7 @@ class SpiderInstance
     @robots_seen = robots_seen
     @headers     = {}
     @setup       = nil
+    @decorator   = nil
     @teardown    = nil
   end
 
@@ -160,6 +161,14 @@ class SpiderInstance
     @setup = p ? p : block
   end
 
+  # Chance to modify crawled url. Given the URL as a string
+  #  decorator do |a_url|
+  #    a_url + "?param=1"
+  #  end
+  def decorator(p = nil, &block)
+    @decorator = p ? p : block
+  end
+
   # Run last, once for each page. Given the URL as a string.
   def teardown(p = nil, &block)
     @teardown = p ? p : block
@@ -191,6 +200,7 @@ class SpiderInstance
       tmp_n_u = {}
       next_urls.each do |prior_url, urls|
         urls.map do |a_url|
+          a_url = @decorator.call(a_url) unless @decorator.nil?
           [a_url, (URI.parse(a_url) rescue nil)]
         end.select do |a_url, parsed_url|
           allowable_url?(a_url, parsed_url)
@@ -227,7 +237,7 @@ class SpiderInstance
 
   # True if the robots.txt for that URL allows access to it.
   def allowed?(a_url, parsed_url) # :nodoc:
-    u = "#{parsed_url.scheme}://#{parsed_url.host}:#{parsed_url.port}/robots.txt"
+    u = "http://#{parsed_url.host}/robots.txt"
     begin
       unless @robots_seen.include?(u)
         open(u, 'User-Agent' => 'Ruby Spider',
@@ -248,7 +258,10 @@ class SpiderInstance
     @seen << parsed_url
     begin
       http = Net::HTTP.new(parsed_url.host, parsed_url.port)
-      http.use_ssl = parsed_url.scheme == 'https'
+      if parsed_url.scheme == 'https'
+        http.use_ssl = true
+        http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+      end
       # Uses start because http.finish cannot be called.
       r = http.start {|h| h.request(Net::HTTP::Get.new(parsed_url.request_uri,
                                                        @headers))}
